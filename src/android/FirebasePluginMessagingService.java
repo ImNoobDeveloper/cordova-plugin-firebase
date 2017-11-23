@@ -1,26 +1,31 @@
 package org.apache.cordova.firebase;
 
 import android.app.NotificationManager;
-import android.app.PendingIntent;
 import android.content.Context;
-import android.content.Intent;
-import android.media.RingtoneManager;
-import android.net.Uri;
-import android.os.Bundle;
-import android.support.v4.app.NotificationCompat;
-import android.util.Log;
-import android.app.Notification;
 import android.text.TextUtils;
 
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
 
-import java.util.Map;
-import java.util.Random;
+import java.util.List;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import de.appplant.cordova.plugin.localnotification.TriggerReceiver;
+import de.appplant.cordova.plugin.notification.Manager;
+import de.appplant.cordova.plugin.notification.Notification;
+import de.appplant.cordova.plugin.notification.Options;
+import de.appplant.cordova.plugin.notification.Request;
 
 public class FirebasePluginMessagingService extends FirebaseMessagingService {
 
     private static final String TAG = "FirebasePlugin";
+
+    private Manager getNotMgr() {
+        return Manager.getInstance(this);
+    }
 
     /**
      * Called when message is received.
@@ -29,99 +34,140 @@ public class FirebasePluginMessagingService extends FirebaseMessagingService {
      */
     @Override
     public void onMessageReceived(RemoteMessage remoteMessage) {
-        // [START_EXCLUDE]
-        // There are two types of messages data messages and notification messages. Data messages are handled
-        // here in onMessageReceived whether the app is in the foreground or background. Data messages are the type
-        // traditionally used with GCM. Notification messages are only received here in onMessageReceived when the app
-        // is in the foreground. When the app is in the background an automatically generated notification is displayed.
-        // When the user taps on the notification they are returned to the app. Messages containing both notification
-        // and data payloads are treated as notification messages. The Firebase console always sends notification
-        // messages. For more see: https://firebase.google.com/docs/cloud-messaging/concept-options
-        // [END_EXCLUDE]
 
-        // TODO(developer): Handle FCM messages here.
-        // Not getting messages here? See why this may be: https://goo.gl/39bRNJ
-        String title;
-        String text;
-        String id;
-        if (remoteMessage.getNotification() != null) {
-            title = remoteMessage.getNotification().getTitle();
-            text = remoteMessage.getNotification().getBody();
-            id = remoteMessage.getMessageId();
-        } else {
-            title = remoteMessage.getData().get("title");
-            text = remoteMessage.getData().get("text");
-            id = remoteMessage.getData().get("id");
+        if (remoteMessage.getData().isEmpty())
+            return;
+
+
+        Boolean esParaBorrar =  remoteMessage.getData().get("BORRAR").equals("SI");
+        String idEven =  remoteMessage.getData().get("IDEV");
+        Integer idNoti = 0;
+
+        try{
+            if (esParaBorrar) Integer.parseInt(idEven);
+            idNoti = Integer.parseInt(remoteMessage.getData().get("IDNOTIFICACION"));
+        }catch(NumberFormatException e){
+            //descartamos la notificación
+            return;
         }
 
-        if(TextUtils.isEmpty(id)){
-            Random rand = new Random();
-            int  n = rand.nextInt(50) + 1;
-            id = Integer.toString(n);
-        }
+        if (esParaBorrar) {
 
-        Log.d(TAG, "From: " + remoteMessage.getFrom());
-        Log.d(TAG, "Notification Message id: " + id);
-        Log.d(TAG, "Notification Message Title: " + title);
-        Log.d(TAG, "Notification Message Body/Text: " + text);
+			if(android.os.Build.VERSION.SDK_INT >= 26){
+				List<Notification> notifications = getNotMgr().getAll();
 
-        // TODO: Add option to developer to configure if show notification when app on foreground
-        if (!TextUtils.isEmpty(text) || !TextUtils.isEmpty(title) || (!remoteMessage.getData().isEmpty())) {
-            boolean showNotification = (FirebasePlugin.inBackground() || !FirebasePlugin.hasNotificationsCallback()) && (!TextUtils.isEmpty(text) || !TextUtils.isEmpty(title));
-            sendNotification(id, title, text, remoteMessage.getData(), showNotification);
-        }
-    }
+				for (Notification notification : notifications) {
+				    try {
+                        Options ops = notification.getOptions();
+                        String data = (String)ops.getDict().get("data");
+                        JSONObject job = new JSONObject(data);
+                        if (job.getString("IDEV").equals(remoteMessage.getData().get("IDEV")))
+                            notification.cancel();
+                        //getNotMgr().clear(notification.getId());
+                        //de.appplant.cordova.plugin.localnotification.LocalNotification.fireEvent("clear", notification);
+                    }catch(JSONException je) {
 
-    private void sendNotification(String id, String title, String messageBody, Map<String, String> data, boolean showNotification) {
-        Bundle bundle = new Bundle();
-        for (String key : data.keySet()) {
-            bundle.putString(key, data.get(key));
-        }
-        if (showNotification) {
-            Intent intent = new Intent(this, OnNotificationOpenReceiver.class);
-            intent.putExtras(bundle);
-            PendingIntent pendingIntent = PendingIntent.getBroadcast(this, id.hashCode(), intent,
-                    PendingIntent.FLAG_UPDATE_CURRENT);
+                    }
+				}
+			}else{
 
-            Uri defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-            NotificationCompat.Builder notificationBuilder = new NotificationCompat.Builder(this)
-                    .setContentTitle(title)
-                    .setContentText(messageBody)
-		    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                    .setStyle(new NotificationCompat.BigTextStyle().bigText(messageBody))
-                    .setAutoCancel(true)
-                    .setSound(defaultSoundUri)
-                    .setContentIntent(pendingIntent);
+                NotificationManager nMgr =  (NotificationManager) this.getSystemService(Context.NOTIFICATION_SERVICE);
 
-            int resID = getResources().getIdentifier("notification_icon", "drawable", getPackageName());
-            if (resID != 0) {
-                notificationBuilder.setSmallIcon(resID);
-            } else {
-                notificationBuilder.setSmallIcon(getApplicationInfo().icon);
+                if (TextUtils.isEmpty(idEven)) {
+                    try{
+                        nMgr.cancel(idNoti);
+                    } catch (NullPointerException ex) {}
+
+                } else
+                    for(int i=100; i<=120; i++){
+
+                        Integer idBorrable = Integer.parseInt(idEven.concat(String.valueOf(i)));
+
+                        try{
+                            nMgr.cancel(idBorrable);
+                        } catch (NullPointerException ex) {}
+                    }
+			}
+
+        }else{
+            String titulo = remoteMessage.getData().get("TITULO");
+            String cuerpo = remoteMessage.getData().get("CUERPO");
+
+            String idCreador =  remoteMessage.getData().get("IDCREADOR");
+            String grupo =  remoteMessage.getData().get("GRUPO");
+
+            JSONObject obj = new JSONObject();
+
+            try {
+                obj.put("id", idNoti);
+                obj.put("title", titulo);
+                obj.put("text", cuerpo);
+                if (!grupo.equals("")) {
+					if (grupo.equals("EV"))
+						obj.put("group", idEven + "EV");
+					else
+						obj.put("group", idCreador + "CR");
+				}
+                obj.put("data", new JSONObject(remoteMessage.getData()).toString());
+                obj.put("vibrate", true);
+
+                obj.put("actions", new JSONArray());
+                obj.put("attachments", new JSONArray());
+                obj.put("autoClear", true);
+                obj.put("defaults", 0);
+                obj.put("foreground", false);
+                obj.put("groupSummary", false);
+                obj.put("launch", true);
+                obj.put("led", true);
+                obj.put("lookscreen", true);
+                obj.put("number", 0);
+                obj.put("priority", 0);
+
+                JSONObject proB = new JSONObject();
+                proB.put("enabled", false);
+                proB.put("value", 0);
+                proB.put("maxValue", 100);
+                proB.put("indeterminate", false);
+                obj.put("progressBar", proB);
+
+                obj.put("showWhen", true);
+                obj.put("silent", false);
+				
+                obj.put("icon","res://icon.png");
+                obj.put("smallIcon", "res://icon");
+                obj.put("sound", true);
+
+                JSONObject trig = new JSONObject();
+                trig.put("type", "calendar");
+                obj.put("trigger", trig);
+
+                obj.put("wakeup", true);
+
+                JSONObject meta = new JSONObject();
+                meta.put("plugin","cordova-plugin-local-notifications");
+                meta.put("version","0.9-beta");
+                obj.put("meta", meta);
+
+            } catch (JSONException e) {
+                e.printStackTrace();
             }
 
-            if(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M)
-            {
-				int accentID = getResources().getIdentifier("accent", "color", getPackageName());
-                notificationBuilder.setColor(getResources().getColor(accentID, null));
-            }
 
-            Notification notification = notificationBuilder.build();
-            if(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP){
-				int iconID = android.R.id.icon;
-				int notiID = getResources().getIdentifier("notification_big", "drawable", getPackageName());
-		if (notification.contentView != null) {
-	                notification.contentView.setImageViewResource(iconID, notiID);
-		}
-            }
-            NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            Options options = new Options(obj);
+            Request request = new Request(options);
 
-            notificationManager.notify(id.hashCode(), notification);
-        } else {
-            bundle.putBoolean("tap", false);
-            bundle.putString("title", title);
-            bundle.putString("body", messageBody);
+            //de.appplant.cordova.plugin.notification.Notification notiInst =
+            getNotMgr().schedule(request, TriggerReceiver.class);
+        }
+		/*
+        if (!FirebasePlugin.inBackground()) {
+
+            Bundle bundle = new Bundle();
+
+            bundle.putInt("id",idNoti);
+            bundle.putBoolean("BORRAR", esParaBorrar);
             FirebasePlugin.sendNotification(bundle);
         }
+		*/
     }
 }
